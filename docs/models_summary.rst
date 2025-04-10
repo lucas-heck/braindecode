@@ -11,13 +11,13 @@
       border-radius: 4px;
       font-size: 0.9em;
     }
+    .dataTables_filter {
+      display: none;
+    }
    </style>
    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/bm/dt-1.13.4/datatables.min.css"/>
 
-.. automodule:: braindecode.models
-
-.. currentmodule:: braindecode.models
 
 Models Summary
 ~~~~~~~~~~~~~~~
@@ -56,13 +56,68 @@ Want to contribute a new model to Braindecode? Great! You can propose a new mode
    <script type="text/javascript" src="https://cdn.datatables.net/v/bm/dt-1.13.4/datatables.min.js"></script>
    <script type="text/javascript">
     $(document).ready(function() {
-     var table = $('.sortable').DataTable({
-       "paging": false,
-       "searching": true,
-       "info": false,
-       language: {
-         "search": "Filter models:"
-       }
-     });
+      var table = $('.sortable').DataTable({
+        "paging": false,
+        "searching": true,
+        "info": false,
+      });
+
+      var indexes = { Paradigm: -1, Type: -1, '#Parameters': -1 };
+      table.columns().every(function(index) {
+        var header = $(this.header()).text().trim();
+        if (header in indexes) indexes[header] = index;
+      });
+
+      var uniqueParadigms = [...new Set(
+        table.column(indexes.Paradigm).nodes().toArray().flatMap(cell =>
+          [...$(cell).find('span.tag')].map(span => $(span).text())
+        )
+      )].sort();
+      var uniqueTypes = [...new Set(
+        table.column(indexes.Type).data().join(', ').split(', ').map(s => s.trim())
+      )].sort();
+      var paramsOptions = ['<1K', '<10K', '<100K', '<1M', '<10M', '<100M'];
+      var paramsRanges = { '<1K': 1e3, '<10K': 1e4, '<100K': 1e5, '<1M': 1e6, '<10M': 1e7, '<100M': 1e8 };
+
+      function createDropdown(options) {
+        return $('<select>').append('<option value="All">All</option>').append(
+          options.map(opt => `<option value="${opt}">${opt}</option>`)
+        );
+      }
+
+      for (var col in indexes) {
+        var header = table.column(indexes[col]).header();
+        var text = $(header).text();
+        $(header).html(`<span>${text}</span><br>`).append(
+          createDropdown(col === '#Parameters' ? paramsOptions : (col === 'Paradigm' ? uniqueParadigms : uniqueTypes))
+        );
+      }
+
+      var filters = { Paradigm: null, Type: null, '#Parameters': null };
+      $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+        var paradigms = [...$(table.row(dataIndex).node()).find('td').eq(indexes.Paradigm).find('span.tag')].map(span => $(span).text());
+        var types = data[indexes.Type].split(', ').map(s => s.trim());
+        var n_params = parseParams(data[indexes['#Parameters']]);
+
+        return (!filters.Paradigm || paradigms.includes(filters.Paradigm)) &&
+               (!filters.Type || types.some(type => filters.Type === type)) &&
+               (!filters['#Parameters'] || (n_params !== null && n_params < filters['#Parameters']));
+      });
+
+      $('th select').on('change', function(e) {
+        var col = $(this).closest('th').find('span').text();
+        var val = $(this).val();
+        filters[col] = val === 'All' ? null : (col === '#Parameters' ? paramsRanges[val] : val);
+        table.draw();
+        e.stopPropagation();
+      }).on('click', e => e.stopPropagation());
+
+      function parseParams(text) {
+        text = text.trim().replace(/,/g, '');
+        if (!text) return null;
+        if (text.endsWith('K')) return parseFloat(text.slice(0, -1)) * 1e3;
+        if (text.endsWith('M')) return parseFloat(text.slice(0, -1)) * 1e6;
+        return parseFloat(text);
+      }
     });
    </script>
